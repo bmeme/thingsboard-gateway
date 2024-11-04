@@ -48,10 +48,11 @@ class FTPUplinkConverter(FTPConverter):
     def _convert_table_view_data(self, config, data):
         dict_result, get_device_name_from_data, get_device_type_from_data = self._get_required_data('${', '}')
         try:
+            arr = data.split(self.__config['delimiter'])
             for data_type in self.__data_types:
+                values = {}
+                ts = None
                 for information in self.__config[data_type]:
-                    arr = data.split(self.__config['delimiter'])
-
                     key_index = information['key']
                     val_index = information['value']
 
@@ -61,10 +62,13 @@ class FTPUplinkConverter(FTPConverter):
                     if '${' in information['value'] and '}' in information['value']:
                         val_index = config['headers'].index(re.sub(r'[^\w]', '', information['value']))
 
-                    dict_result[self.__data_types[data_type]].append({
-                        arr[key_index] if isinstance(key_index, int) else key_index:
-                            arr[val_index] if isinstance(val_index, int) else val_index
-                    })
+                    key = arr[key_index] if isinstance(key_index, int) else key_index
+                    val = arr[val_index] if isinstance(val_index, int) else val_index
+
+                    if data_type == 'timeseries' and key == 'ts':
+                        ts = int(val)
+                    else:
+                        values[key] = val
 
                     if get_device_name_from_data:
                         index = config['headers'].index(re.sub(r'[^\w]', '', self.__config['devicePatternName']))
@@ -72,6 +76,12 @@ class FTPUplinkConverter(FTPConverter):
                     if get_device_type_from_data:
                         index = config['headers'].index(re.sub(r'[^\w]', '', self.__config['devicePatternType']))
                         dict_result['deviceType'] = arr[index]
+
+                for item in values:
+                    if data_type == 'timeseries' and ts is not None:
+                        dict_result[self.__data_types[data_type]].append({'ts': ts, 'values': {item: values[item]}})
+                    else:
+                        dict_result[self.__data_types[data_type]].append({item: values[item]})
 
         except Exception as e:
             StatisticsService.count_connector_message(self._log.name, 'convertersMsgDropped')
@@ -98,14 +108,18 @@ class FTPUplinkConverter(FTPConverter):
     def _convert_slices_view_data(self, data):
         dict_result, get_device_name_from_data, get_device_type_from_data = self._get_required_data('[', ']')
         try:
+            arr = data.split(self.__config['delimiter'])
             for data_type in self.__data_types:
+                values = {}
+                ts = None
                 for information in self.__config[data_type]:
-                    arr = data.split(self.__config['delimiter'])
-
                     val = self._get_key_or_value(information['value'], arr)
                     key = self._get_key_or_value(information['key'], arr)
 
-                    dict_result[self.__data_types[data_type]].append({key: val})
+                    if data_type == 'timeseries' and key == 'ts':
+                        ts = int(val)
+                    else:
+                        values[key] = val
 
                     if get_device_name_from_data:
                         if self.__config['devicePatternName'] == information['value']:
@@ -113,6 +127,13 @@ class FTPUplinkConverter(FTPConverter):
                     if get_device_type_from_data:
                         if self.__config['devicePatternType'] == information['value']:
                             dict_result['deviceType'] = val
+
+                for item in values:
+                    if data_type == 'timeseries' and ts is not None:
+                        dict_result[self.__data_types[data_type]].append({'ts': ts, 'values': {item: values[item]}})
+                    else:
+                        dict_result[self.__data_types[data_type]].append({item: values[item]})
+
         except Exception as e:
             StatisticsService.count_connector_message(self._log.name, 'convertersMsgDropped')
             self._log.error('Error in converter, for config: \n%s\n and message: \n%s\n %s', dumps(self.__config), data,
